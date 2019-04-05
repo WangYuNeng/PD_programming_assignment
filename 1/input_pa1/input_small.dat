@@ -1,0 +1,14 @@
+0.6
+NET n0 c0 c1 c2 c3 c4 c5 c6 c7 c8 c9 ; 
+NET n1 c1 c2 c3 c5 c9 ;
+NET n2 c1 c3 c4 c6 c7 c9 ;
+NET n3 c1 c8 c9 ;
+NET n4 c1 c4 c5 c6 c7 c1 ;
+NET n5 c0 ;
+NET n6 c1 ;
+NET n5 c2 ;
+NET n6 c3 ;
+NET n7 c100 ;
+NET n7 c101 ;
+NET n7 c102 ;
+NET n7 c103 ;
