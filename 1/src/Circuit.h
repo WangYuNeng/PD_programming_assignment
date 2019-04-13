@@ -8,6 +8,10 @@
 #include <iostream>
 #include <cstring>
 #include <cstdio>
+#include <cmath>
+#include <ctime>
+#include <iomanip>
+#include <tuple>
 #include <map>
 
 class Net;
@@ -87,7 +91,18 @@ public:
     ~Group() { delete [] GainArray; }
 
     int getSize () { return gsize; }
-    Cell* getMaxCell () { return GainArray[max+Pmax].front(); }
+    Cell* getMaxCell ( int c_zero) { 
+        if ( c_zero < 2 ) return GainArray[max+Pmax].front();
+        CellListIt it = GainArray[max+Pmax].begin(); 
+        int step;
+        if ( GainArray[max+Pmax].size() < 20 ) step = rand() % GainArray[max+Pmax].size();
+        else step = rand() % 20;        
+        for (int i = 0; i < step; i++)
+        {
+            ++it;
+        }
+        return *it;
+    }
     int getMax () { return max; }
 
     void initialize ( int pm ) { GainArray = new CellList [2*pm + 1]; Pmax = pm; max = -pm; gsize = 0; }
@@ -111,9 +126,9 @@ private:
     // FM function
     inline void initialPartition ();
     inline void initialGain();
-    inline Cell* getMaxGainCell();
+    inline std::tuple<Cell*, bool> getMaxGainCell( int c_zero );
     inline void updateGain( Cell* );
-    inline void updateSum( Cell*, int&, int&, int&, int&, int );
+    inline void updateSum( Cell*, int&, int&, int&, int&, int, bool );
     inline void bestMoves( Cell**, bool*, int );
 
 public:
@@ -130,7 +145,7 @@ public:
     Cells* getCells () { return &cells; }
     Nets* getNets () { return &nets; }
     Group* getGroups ( bool i ) { return groups+int(i); }
-
+    int getCutsize();
     // free memory
     void cleanCircuit ();
 

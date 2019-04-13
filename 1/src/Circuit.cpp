@@ -6,9 +6,11 @@ void Circuit::FM ()
     bool* lockedGroup = new bool [cells.size()]; 
     Cell* lockedCell;
     int gainSum, maxGainSum, terminateStep, balance;
-
+    int zeroTolerant, addTolerant = int( log10(cells.size()) );
     initialPartition();
-    int ite = 0;
+    int ite = 0, consecutiveZero = 0;
+    bool unbalanceFlag = false;
+    time_t startTime = time(NULL);
     while (1)
     {
         initialGain();  
@@ -19,9 +21,10 @@ void Circuit::FM ()
         maxGainSum = EMPTY_GROUP;
         terminateStep = -1;
         balance = 0;
+        std::cout << char(13) << std::setw(60) << ' ' << char(13);   
         for(int i = 0; i < cells.size(); i++)
         {
-            lockedCell = getMaxGainCell();
+            std::tie(lockedCell, unbalanceFlag) = getMaxGainCell(consecutiveZero);
             if ( lockedCell == 0 )
             { 
                 printf("ERROR");
@@ -30,12 +33,22 @@ void Circuit::FM ()
             lockedCells[i] = lockedCell;
             lockedGroup[i] = ( lockedCell->belong == &groups[1] );
             updateGain( lockedCell );
-            updateSum( lockedCell, gainSum, maxGainSum, terminateStep, balance, i );
+            updateSum( lockedCell, gainSum, maxGainSum, terminateStep, balance, i, unbalanceFlag );
         }
-        if ( maxGainSum > 0 ) bestMoves( lockedCells, lockedGroup, terminateStep );
+        if ( maxGainSum > 0 && time(NULL) - startTime < 3000 ) {
+            zeroTolerant += addTolerant; 
+            consecutiveZero = 0;
+        }
+        else if ( maxGainSum == 0 && time(NULL) - startTime < 3000 && zeroTolerant > 0 ) {
+            consecutiveZero += 1;
+            zeroTolerant -= ( 1 + int(log10(consecutiveZero)) );
+        }
         else break;
+        bestMoves( lockedCells, lockedGroup, terminateStep );
+        if (gainSum != 0) std::cerr << "error!!!\n";
+        std::cout << "iteratio : " << ite << " maxgain : " << maxGainSum << " Tol : " << zeroTolerant << std::flush;
     }
-    printf("%d\n", ite);
+    //printf("%d\n", ite);
     bestMoves( lockedCells, lockedGroup, cells.size() );
     delete [] lockedCells;
     delete [] lockedGroup;
@@ -44,7 +57,6 @@ void Circuit::FM ()
 inline void Circuit::initialPartition ()
 {
     int Pmax = 0;
-    srand(100);
     for(Cells::iterator it = cells.begin(); it != cells.end(); ++it)
     {
         int num = (*it)->getNumTerminal();
@@ -55,8 +67,8 @@ inline void Circuit::initialPartition ()
     groups[1].initialize(Pmax);
     for(int i = 0; i < cells.size(); ++i)
     {
-        if ( (i << 1) < cells.size() )
-        //if ( rand() % 2 == 0 && groups[0].getSize() < (cells.size() >> 1) )
+        //if ( (i << 1) < cells.size() )
+        if ( rand() % 2 == 0 && groups[0].getSize() < (cells.size() >> 1) )
         {
             groups[0].addCell( cells.at(i) );
             cells.at(i)->assignGroup( &groups[0] );
@@ -100,7 +112,7 @@ inline void Circuit::initialGain ()
     
 }
 
-inline Cell* Circuit::getMaxGainCell ()
+inline std::tuple<Cell*, bool> Circuit::getMaxGainCell (int c_zero)
 {
     double top = (1.0 + ratio)*cells.size() / 2.0, down = (1.0 - ratio)*cells.size() / 2.0;
     double gsize[2] = {double(groups[0].getSize()), double(groups[1].getSize())};
@@ -116,11 +128,17 @@ inline Cell* Circuit::getMaxGainCell ()
     } 
     if ( gFrom->getMax() == EMPTY_GROUP )
     {
-        return 0;
+        gFrom = &groups[int( &groups[0] == gFrom )];
+        c = gFrom->getMaxCell(c_zero);
+        gFrom->deleteCell( c );
+        return std::make_tuple( c, true );
     }
-    c = gFrom->getMaxCell();
-    gFrom->deleteCell( c );
-    return c;
+    else
+    {
+        c = gFrom->getMaxCell(c_zero);
+        gFrom->deleteCell( c );
+        return std::make_tuple( c, false );
+    }
 }
 
 inline void Circuit::updateGain ( Cell* c )
@@ -160,9 +178,10 @@ inline void Circuit::updateGain ( Cell* c )
     }
 }
 
-inline void Circuit::updateSum ( Cell* c, int &sum, int &maxsum, int &termainate, int &balance, int step )
+inline void Circuit::updateSum ( Cell* c, int &sum, int &maxsum, int &termainate, int &balance, int step, bool unbalanceFlag )
 {
     sum += c->gain;
+    if ( unbalanceFlag ) return;
     if ( sum > maxsum ) 
     {
         maxsum = sum;
@@ -170,16 +189,16 @@ inline void Circuit::updateSum ( Cell* c, int &sum, int &maxsum, int &termainate
         balance = groups[0].getSize() - groups[1].getSize();
         if ( balance < 0 ) balance *= -1;
     }
-    else if ( sum == maxsum )
+    else if ( sum == maxsum && step != cells.size() - 1 )
     {
         int b = groups[0].getSize() - groups[1].getSize();
-        if ( b < 0 ) b *= -1;
-        if ( b < balance )
-        {
+        //if ( b < 0 ) b *= -1;
+        //if ( b < balance )
+        //{
             maxsum = sum;
             termainate = step;
             balance = b;
-        }
+        //}
     }
     
 }
@@ -309,6 +328,18 @@ void Group::writeCells ( FILE* fp )
     fprintf( fp, ";\n");
 }
 
+int Circuit::getCutsize ()
+{
+    Net* n;
+    int cutsize = 0;
+    for(Nets::iterator itNet = nets.begin(); itNet != nets.end(); ++itNet)
+    {
+        n = *itNet; 
+        if ( n->getGCount(0) > 0 && n->getGCount(1) > 0 ) ++cutsize;
+    }
+    return cutsize;
+}
+
 void Circuit::cleanCircuit ()
 {
     for(int i = 0; i < cells.size(); i++)
@@ -351,14 +382,9 @@ void Circuit::printGroups ()
 void Circuit::writePartition ( char* filename )
 {
     FILE *fp = fopen(filename, "w");
-    Net* n;
-    int cutsize = 0;
+    int cutsize = getCutsize();
 
-    for(Nets::iterator itNet = nets.begin(); itNet != nets.end(); ++itNet)
-    {
-        n = *itNet; 
-        if ( n->getGCount(0) > 0 && n->getGCount(1) > 0 ) ++cutsize;
-    }
+
     fprintf( fp, "Cutsize = %d\n", cutsize );
     fprintf( fp, "G1 %d\n", groups[0].getSize());
     groups[0].writeCells( fp );

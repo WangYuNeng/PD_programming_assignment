@@ -68,6 +68,7 @@ void parse ( Circuit& cir, const char* filename )
             }
         }
     }
+    fclose(fp);
 }
 
 #endif
