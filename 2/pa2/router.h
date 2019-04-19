@@ -4,6 +4,7 @@
 #include <cassert>
 
 class Grid;
+class router;
 
 enum DIRECTION {UP, DOWN, LEFT, RIGHT, NONE};
 enum LAYER : bool { HORI=true, VERTI=false };
@@ -12,12 +13,12 @@ typedef pair<int, int> Pos;
 class Grid
 {
     public:
-    Grid ( RoutingDB &db );
+    Grid ();
     ~Grid ();
 
     // get function
-    int capacity ( const Pos &_pin1, const Pos &_pin2 );
-    int load ( const Pos &_pin1, const Pos &_pin2 );
+    int getCapacity ( const Pos &_pin1, const Pos &_pin2 );
+    int getLoad ( const Pos &_pin1, const Pos &_pin2 );
 
     // modify function
     void incrLoad ( const Pos &_pin1, const Pos &_pin2 );
@@ -28,7 +29,24 @@ class Grid
     private:
     int vtiles, htiles;
     int **vCapacity, **hCapacity, **vLoad, **hLoad; 
-    pair<Pos, bool> tile2Boundary ( const Pos &_pin1, const Pos &_pin2 );
+    pair<const Pos*, bool> tile2Boundary ( const Pos &_pin1, const Pos &_pin2 );
+};
+
+class router
+{
+public:
+    router();
+    ~router();
+
+    void runDijstra();
+
+private:
+    Grid *grid;
+    map<int, Net*> orderedNets;
+
+    // Ordering function
+    void netOrdering();
+    int getNetOrder( Net &n );
 };
 
 #endif

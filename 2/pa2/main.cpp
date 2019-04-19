@@ -193,7 +193,7 @@ int main(int argc, char** argv)
     cout << endl;
     cout << endl;
 
-    Grid g = Grid(db);
+    Grid g = Grid();
     g.showInfo();
 
     return 0;
