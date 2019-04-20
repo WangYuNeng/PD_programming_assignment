@@ -193,8 +193,8 @@ int main(int argc, char** argv)
     cout << endl;
     cout << endl;
 
-    Grid g = Grid();
-    g.showInfo();
+    Router router = Router();
+    router.routeAll();
 
     return 0;
 }
