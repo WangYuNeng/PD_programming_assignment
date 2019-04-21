@@ -141,12 +141,12 @@ void DijstraMap::connect ( const Vertice* _pin1, const Vertice* _pin2 )
     if ( _boundInfo.second == LAYER::HORI ) 
     {
         hConnected[_boundInfo.first->x][_boundInfo.first->y] = true;
-        ++hCapacity[_boundInfo.first->x][_boundInfo.first->y];
+        ++hLoad[_boundInfo.first->x][_boundInfo.first->y];
     }
     else 
     {
         vConnected[_boundInfo.first->x][_boundInfo.first->y] = true;
-        ++vCapacity[_boundInfo.first->x][_boundInfo.first->y];
+        ++vLoad[_boundInfo.first->x][_boundInfo.first->y];
     }
 }
 
@@ -154,8 +154,8 @@ void DijstraMap::incrLoad ( const Vertice* _pin1, const Vertice* _pin2 )
 {
     // embedded  in connect
     pair<const Vertice*, bool> _boundInfo = tile2Boundary( _pin1, _pin2 );
-    if ( _boundInfo.second == LAYER::HORI ) ++hCapacity[_boundInfo.first->x][_boundInfo.first->y];
-    else ++vCapacity[_boundInfo.first->x][_boundInfo.first->y];
+    if ( _boundInfo.second == LAYER::HORI ) ++hLoad[_boundInfo.first->x][_boundInfo.first->y];
+    else ++vLoad[_boundInfo.first->x][_boundInfo.first->y];
 }
 
 int DijstraMap::BackTrace ( Vertice* _p, vector<string>& _output )
@@ -181,7 +181,7 @@ int DijstraMap::BackTrace ( Vertice* _p, vector<string>& _output )
     {
         _xCoord = _lowX + _v.x*_tileW + _tileW/2;
         _yCoord = _lowY + _v.y*_tileH + _tileH/2;
-        if ( distance[_v.x][_v.y] == 0 ) 
+        if ( parent[_v.x][_v.y] == NONE ) 
         {
             if ( _halfOutput )
             {
@@ -341,7 +341,7 @@ pair<const Vertice*, bool> DijstraMap::tile2Boundary( const Vertice* _pin1, cons
     else
     {
         layer = LAYER::HORI;
-        if ( _pin1->x < _pin2->y ) return make_pair(_pin1, layer);
+        if ( _pin1->x < _pin2->x ) return make_pair(_pin1, layer);
         else return make_pair(_pin2, layer);
     }
 
@@ -362,14 +362,18 @@ Router::~Router ()
 void Router::routeAll ( ofstream& _of )
 {
     netOrdering();
-    for (map<int, Net*>::iterator it = orderedNets.begin(); it != orderedNets.end(); ++it)
+    int _count = 0;
+    for (multimap<int, Net*>::iterator it = orderedNets.begin(); it != orderedNets.end(); ++it)
     {
-        map<int, SubNet*> _orderedSubnet;
+        multimap<int, SubNet*> _orderedSubnet;
         Net* _n = it->second;
         vector<string> _output;
         int _routeCount;
         _output.empty();
         _routeCount = 0;
+
+        ++_count;
+        cout << "Routing Net " << setw(8) << _n->GetUid() << " (" << setw(8) << _count << "/" << setw(8) << db.GetNetNo() << ")" << flush;
 
         for (int i = 0; i < _n->GetSubNetNo(); i++)
         {
@@ -377,15 +381,16 @@ void Router::routeAll ( ofstream& _of )
             _orderedSubnet.insert( make_pair( getSubnetOrder( _sn ), &_sn ) );
         }
         
-        for (map<int, SubNet*>::iterator subIt = _orderedSubnet.begin(); subIt != _orderedSubnet.end(); ++subIt)
+        for (multimap<int, SubNet*>::iterator subIt = _orderedSubnet.begin(); subIt != _orderedSubnet.end(); ++subIt)
         {
             SubNet* _sn = subIt->second;
+            if ( _sn->GetSourcePinGx() == _sn->GetTargetPinGx() && _sn->GetSourcePinGy() == _sn->GetTargetPinGy() ) continue;
             Vertice _v = Vertice(  _sn->GetTargetPinGx(), _sn->GetTargetPinGy() );
 
             runDijstra( _sn );
             _routeCount += dMap->BackTrace( &_v, _output );
         }
-
+        cout << char(13) << setw(60) << ' ' << char(13);   
         printNet( _n, _output, _routeCount, _of );
         dMap->refreshConnection();
         _orderedSubnet.clear();
@@ -397,12 +402,13 @@ void Router::runDijstra ( SubNet* _sn )
 {
     minHeap _distanceHeap;
     Vertice* _v;
-    short _targetX = _sn->GetTargetPinGx(), _targetY = _sn->GetSourcePinGy();
+    short _targetX = _sn->GetTargetPinGx(), _targetY = _sn->GetTargetPinGy();
 
     // initialize single source
     dMap->refreshDistance();
     _v = new Vertice( _sn->GetSourcePinGx(), _sn->GetSourcePinGy(), 0 );
     dMap->setDistance( _v );
+    dMap->setParent( _v, NONE );
     relax( _v , _distanceHeap );
 
     while(true){
@@ -438,8 +444,12 @@ void Router::relax ( Vertice* _p, minHeap& _mheap )
         _toVertice = toVertice( _p, d );
         if ( _toVertice != NULL ) {
             _newDistance = _p->distance + getWeight( _p, _toVertice );
-            update( _p, _toVertice, _newDistance, _mheap);
-            dMap->setParent( _toVertice, d );
+            if ( _newDistance < dMap->getDistance( _toVertice ) )
+            {
+                dMap->setParent( _toVertice, d );
+                update( _p, _toVertice, _newDistance, _mheap);
+            }
+            else delete _toVertice;
         }
     }
 }
@@ -470,7 +480,7 @@ Vertice* Router::toVertice( Vertice* _p, int _direction )
         _y = _p->y;
         assert(0);
     }
-    if ( _x >= 0 && _y >= 0 && _x < db.GetHoriGlobalTileNo() && _y < db.GetVertiGlobalTileNo() && dMap->unDiscovered( _x, _y )  ) return new Vertice( _x, _y );
+    if ( _x >= 0 && _y >= 0 && _x < db.GetHoriGlobalTileNo() && _y < db.GetVertiGlobalTileNo() ) return new Vertice( _x, _y );
     else return NULL;
 }
 
@@ -482,7 +492,15 @@ double Router::getWeight( Vertice* _pFrom, Vertice* _pTo )
     int _cap = dMap->getCapacity( _pFrom, _pTo );
     int _load = dMap->getLoad( _pFrom, _pTo );
     double ratio = _load*1.0 / _cap*1.0;
-    return pow( 2, ratio );
+    
+    int _viacost = 0;
+    bool _d1, _d2;
+    if ( dMap->getParent( _pFrom ) == UP || dMap->getParent( _pFrom ) == DOWN ) _d1 = 1;
+    else _d1 = 0;
+    if ( dMap->getParent( _pTo ) == UP || dMap->getParent( _pTo ) == DOWN ) _d2 = 1;
+    else _d2 = 0;
+    _viacost = int( !(_d1 == _d2) );
+    return pow( 2, ratio ) + _viacost;
 }
 
 void Router::update ( Vertice* _pFrom, Vertice* _pTo, double _newDist, minHeap& _mheap )

@@ -69,7 +69,7 @@ int main(int argc, char** argv)
 
     /* =================================== */
     /* Show input information after parser */
-    cout << "RoutingDB Info: " << endl;
+    /*cout << "RoutingDB Info: " << endl;
 
     cout << "..# of horizontal global tiles: " 
 	<< db.GetHoriGlobalTileNo() << endl;
@@ -137,7 +137,7 @@ int main(int argc, char** argv)
 
     }
 
-    cout << endl;
+    cout << endl;*/
     /* =================================== */
 
 
@@ -148,7 +148,7 @@ int main(int argc, char** argv)
 	RoutingTree tree;
 	tree.MinimumSpanningTreeConstruction();
 
-	tree.ShowInfo();
+	//tree.ShowInfo();
 	cout << endl;
     }
 	
@@ -158,7 +158,7 @@ int main(int argc, char** argv)
     /* =================================== */
     /* Show net(subnet) information after net decomposition */
 
-    cout << "Net/SubNet Info: " << endl;
+    /*cout << "Net/SubNet Info: " << endl;
 
     for (int i = 0; i < db.GetNetNo(); i++)
     {
@@ -176,7 +176,7 @@ int main(int argc, char** argv)
 	cout << endl;
     }
 
-    cout << endl;
+    cout << endl;*/
     /* =================================== */
 
     ofstream f;

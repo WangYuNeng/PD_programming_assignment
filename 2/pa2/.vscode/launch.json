@@ -9,7 +9,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/gr.exe",
-            "args": ["example.gr", "example.out"],
+            "args": ["adaptec1.capo70.2d.35.50.90.gr", "example.out"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],

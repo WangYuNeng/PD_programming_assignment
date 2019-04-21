@@ -5,6 +5,7 @@
 #include <queue>
 #include <limits>
 #include <cmath>
+#include <iomanip>
 
 class DijstraMap;
 class Router;
@@ -43,8 +44,10 @@ class DijstraMap
     // get function
     int getCapacity ( const Vertice* _pin1, const Vertice* _pin2 );
     int getLoad ( const Vertice* _pin1, const Vertice* _pin2 );
+    int getParent( const Vertice* _p ) { return parent[_p->x][_p->y]; }
+    double getDistance ( const Vertice* _p ) { return distance[_p->x][_p->y]; }
     bool isConnected ( const Vertice* _p1, const Vertice* _p2 );
-    bool isViaConnected ( const Vertice* _p ) { return viaConnected[_p->x][_p->y]; };
+    bool isViaConnected ( const Vertice* _p ) { return viaConnected[_p->x][_p->y]; }
     bool isMinDistance ( const Vertice* _p ) { return _p->distance == distance[_p->x][_p->y]; }
     bool unDiscovered ( short _x, short _y ) { return distance[_x][_y] == numeric_limits<double>::max(); }
     
@@ -82,8 +85,8 @@ public:
     void routeAll( ofstream& _of );
 
 private:
-    map<int, Net*> orderedNets;
     DijstraMap *dMap;
+    multimap<int, Net*> orderedNets;
 
     // Dijstra function
     void runDijstra ( SubNet* _sn );
