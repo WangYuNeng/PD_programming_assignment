@@ -1,0 +1,8 @@
+g++  -Wall -O0 -g  -std=c++11    -c -o main.o main.cpp
+g++  -Wall -O0 -g  -std=c++11    -c -o parser.o parser.cpp
+g++  -Wall -O0 -g  -std=c++11    -c -o routingdb.o routingdb.cpp
+g++  -Wall -O0 -g  -std=c++11    -c -o tree.o tree.cpp
+g++  -Wall -O0 -g  -std=c++11    -c -o router.o router.cpp
+g++  -Wall -O0 -g  -std=c++11    -c -o lib/mst.o lib/mst.cpp
+g++ -Wall -O0 -g  -std=c++11   -o gr main.o parser.o routingdb.o tree.o router.o lib/mst.o
+./gr .\example.gr .\example.out

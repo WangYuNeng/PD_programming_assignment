@@ -6,7 +6,7 @@
 #include <limits>
 #include <cmath>
 
-class Grid;
+class DijstraMap;
 class Router;
 
 class Vertice
@@ -16,9 +16,6 @@ class Vertice
     Vertice ( short _x, short _y ) { x = _x; y =_y; }
     Vertice ( short _x, short _y, short _distance ) { x = _x; y =_y; distance = _distance; }
     ~Vertice() {} 
-
-     // check if vertice move out-of-range
-    bool isValid () { return (x >= 0 && y >= 0 && x < db.GetHoriGlobalTileNo() && y < db.GetVertiGlobalTileNo() ) ; }
     
     short x;
     short y;
@@ -37,48 +34,42 @@ enum DIRECTION {UP, DOWN, LEFT, RIGHT, NONE};
 enum LAYER : bool { HORI=true, VERTI=false };
 typedef priority_queue<Vertice*, vector<Vertice*>, Vertice_Compare> minHeap;
 
-class Grid
-{
-    public:
-    Grid ();
-    ~Grid ();
-
-    // get function
-    int getCapacity ( const Vertice* _pin1, const Vertice* _pin2 );
-    int getLoad ( const Vertice* _pin1, const Vertice* _pin2 );
-
-    // modify function
-    void incrLoad ( const Vertice* _pin1, const Vertice* _pin2 );
-
-    // print function
-    void showInfo ();
-
-    private:
-    int vtiles, htiles;
-    int **vCapacity, **hCapacity, **vLoad, **hLoad; 
-    pair<const Vertice*, bool> tile2Boundary ( const Vertice* _pin1, const Vertice* _pin2 );
-};
-
 class DijstraMap
 {
     public:
     DijstraMap ();
     ~DijstraMap ();
 
-    bool isConnected ( Vertice* _p ) { return connected[_p->x][_p->y]; }
-    bool isMinDistance ( Vertice* _p ) { return _p->distance == distance[_p->x][_p->y]; }
-    void BackTrace ( Vertice* _p );
+    // get function
+    int getCapacity ( const Vertice* _pin1, const Vertice* _pin2 );
+    int getLoad ( const Vertice* _pin1, const Vertice* _pin2 );
+    bool isConnected ( const Vertice* _p1, const Vertice* _p2 );
+    bool isViaConnected ( const Vertice* _p ) { return viaConnected[_p->x][_p->y]; };
+    bool isMinDistance ( const Vertice* _p ) { return _p->distance == distance[_p->x][_p->y]; }
+    bool unDiscovered ( short _x, short _y ) { return distance[_x][_y] == numeric_limits<double>::max(); }
+    
+    // refresh function
     void refreshConnection ();
     void refreshDistance ();
+    
+    // set function
+    void connect ( const Vertice* _p1, const Vertice* _p2 );
+    void connectVia ( const Vertice* _p ) { viaConnected[_p->x][_p->y] = true; };
+    void setParent ( const Vertice* _p, const int _direction ) { parent[_p->x][_p->y] = _direction; };
+    void setDistance ( const Vertice* _p ) { distance[_p->x][_p->y] = _p->distance; };
+    void incrLoad ( const Vertice* _pin1, const Vertice* _pin2 );
 
-    void connect ( Vertice* _p ) { connected[_p->x][_p->y] = true; }
-    void setParent ( Vertice* _p, int _direction ) { parent[_p->x][_p->y] = _direction; };
-    void setDistance ( Vertice* _p ) { distance[_p->x][_p->y] = _p->distance; };
+    // print function
+    int BackTrace ( Vertice* _p, vector<string>& _output );
+    void showInfo ();
 
     private:
     int **parent; // dirction is in _p's parent's view
-    bool **connected;
     double **distance; // substitute for decrease key
+    bool **hConnected, **vConnected, **viaConnected;
+    int **vCapacity, **hCapacity, **vLoad, **hLoad; 
+    
+    pair<const Vertice*, bool> tile2Boundary ( const Vertice* _pin1, const Vertice* _pin2 );
 
 };
 
@@ -88,11 +79,10 @@ public:
     Router();
     ~Router();
 
-    void routeAll();
+    void routeAll( ofstream& _of );
 
 private:
     map<int, Net*> orderedNets;
-    Grid *grid;
     DijstraMap *dMap;
 
     // Dijstra function
@@ -110,6 +100,9 @@ private:
 
     // util function
     int getManhattanDist ( short _x1, short _y1, short _x2, short _y2 );
+
+    // print function
+    void printNet( Net* _n, vector<string>& _output, int _routeCount, ofstream& _of );
     
 };
 

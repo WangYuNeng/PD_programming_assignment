@@ -2,28 +2,48 @@
 
 extern RoutingDB db;
 
-//======================Grid======================
+//======================DijstraMap======================
 
-Grid::Grid ()
+DijstraMap::DijstraMap ()
 {
-    vtiles = db.GetVertiGlobalTileNo();
-    htiles = db.GetHoriGlobalTileNo();
-
+    int _vtiles = db.GetVertiGlobalTileNo();
+    int _htiles = db.GetHoriGlobalTileNo();
     int _vcap = db.GetLayerVertiCapacity(1), _hcap = db.GetLayerHoriCapacity(0);
+
+    parent = new int* [_htiles];
+    vConnected = new bool* [_htiles];
+    hConnected = new bool* [_htiles];
+    viaConnected = new bool* [_htiles];
+    distance = new double* [_htiles];
+
     // size not exactly fit
     // capacity of boundary for wire = _cap / 2
-    vCapacity = new int* [htiles];
-    hCapacity = new int* [htiles];
-    vLoad = new int* [htiles];
-    hLoad = new int* [htiles];
-    for (int i = 0; i < htiles; i++)
+    vCapacity = new int* [_htiles];
+    hCapacity = new int* [_htiles];
+    vLoad = new int* [_htiles];
+    hLoad = new int* [_htiles];
+
+    for (int i = 0; i < _htiles; i++)
     {
-        vCapacity[i] = new int [vtiles];
-        hCapacity[i] = new int [vtiles];
-        vLoad[i] = new int [vtiles];
-        hLoad[i] = new int [vtiles];
-        for (int j = 0; j < vtiles; j++)
+        parent[i] = new int [_vtiles];
+        vConnected[i] = new bool [_vtiles];
+        hConnected[i] = new bool [_vtiles];
+        viaConnected[i] = new bool [_vtiles];
+        distance[i] = new double [_vtiles];
+
+        vCapacity[i] = new int [_vtiles];
+        hCapacity[i] = new int [_vtiles];
+        vLoad[i] = new int [_vtiles];
+        hLoad[i] = new int [_vtiles];
+
+        for (int j = 0; j < _vtiles; j++)
         {
+            parent[i][j] = 0;
+            vConnected[i][j] = 0;
+            hConnected[i][j] = 0;
+            viaConnected[i][j] = 0;
+            distance[i][j] = 0;
+
             vCapacity[i][j] = _vcap >> 1;
             hCapacity[i][j] = _hcap >> 1;
             vLoad[i][j] = 0;
@@ -34,30 +54,242 @@ Grid::Grid ()
     for (int i = 0; i < db.GetCapacityAdjustNo(); i++)
     {
         CapacityAdjust& _ca = db.GetCapacityAdjust(i);
-        pair<const Vertice*, bool> _boundInfo = tile2Boundary( &Vertice( _ca.GetGx1(), _ca.GetGy1() ), &Vertice( _ca.GetGx2(), _ca.GetGy2() ) );
+        Vertice _v1 = Vertice( _ca.GetGx1(), _ca.GetGy1() ), _v2 = Vertice( _ca.GetGx2(), _ca.GetGy2() );
+
+        pair<const Vertice*, bool> _boundInfo = tile2Boundary( &_v1, &_v2 );
         if ( _boundInfo.second == LAYER::HORI ) hCapacity[_boundInfo.first->x][_boundInfo.first->y] = _ca.GetReduceCapacity() >> 1;
         else vCapacity[_boundInfo.first->x][_boundInfo.first->y] = _ca.GetReduceCapacity() >> 1;
     }
     
 }
 
-Grid::~Grid()
+DijstraMap::~DijstraMap ()
 {
-    for (int i = 0; i < htiles; i++)
+    for (int i = 0; i < db.GetHoriGlobalTileNo(); i++)
     {
+        delete [] parent[i];
+        delete [] vConnected[i];
+        delete [] hConnected[i];
+        delete [] viaConnected[i];
+        delete [] distance[i];
+
         delete [] vCapacity[i];
         delete [] hCapacity[i];
         delete [] vLoad[i];
         delete [] hLoad[i];
     }
+    delete [] parent;
+    delete [] vConnected;
+    delete [] hConnected;
+    delete [] viaConnected;
+    delete [] distance;
+
     delete [] vCapacity;
     delete [] hCapacity;
     delete [] vLoad;
     delete [] hLoad;
 }
 
-void Grid::showInfo ()
+int DijstraMap::getCapacity ( const Vertice* _pin1, const Vertice* _pin2 )
 {
+    pair<const Vertice*, bool> _boundInfo = tile2Boundary( _pin1, _pin2 );
+    if ( _boundInfo.second == LAYER::HORI ) return hCapacity[_boundInfo.first->x][_boundInfo.first->y];
+    else return vCapacity[_boundInfo.first->x][_boundInfo.first->y];
+}
+
+int DijstraMap::getLoad ( const Vertice* _pin1, const Vertice* _pin2 )
+{
+    pair<const Vertice*, bool> _boundInfo = tile2Boundary( _pin1, _pin2 );
+    if ( _boundInfo.second == LAYER::HORI ) return hLoad[_boundInfo.first->x][_boundInfo.first->y];
+    else return vLoad[_boundInfo.first->x][_boundInfo.first->y];
+}
+
+bool DijstraMap::isConnected ( const Vertice* _pin1, const Vertice* _pin2 )
+{
+    pair<const Vertice*, bool> _boundInfo = tile2Boundary( _pin1, _pin2 );
+    if ( _boundInfo.second == LAYER::HORI ) return hConnected[_boundInfo.first->x][_boundInfo.first->y];
+    else return vConnected[_boundInfo.first->x][_boundInfo.first->y];
+}
+
+void DijstraMap::refreshConnection ()
+{ 
+    for (int i = 0; i < db.GetHoriGlobalTileNo(); i++)
+    {
+        for (int j = 0; j < db.GetVertiGlobalTileNo(); j++)
+        {
+            vConnected[i][j] = false;
+            hConnected[i][j] = false;
+            viaConnected[i][j] = false;
+        }
+    }
+}
+
+void DijstraMap::refreshDistance ()
+{
+    for (int i = 0; i < db.GetHoriGlobalTileNo(); i++)
+    {
+        for (int j = 0; j < db.GetVertiGlobalTileNo(); j++)
+        {
+            distance[i][j] = numeric_limits<double>::max();
+        }
+    }
+}
+
+void DijstraMap::connect ( const Vertice* _pin1, const Vertice* _pin2 )
+{
+    pair<const Vertice*, bool> _boundInfo = tile2Boundary( _pin1, _pin2 );
+    if ( _boundInfo.second == LAYER::HORI ) 
+    {
+        hConnected[_boundInfo.first->x][_boundInfo.first->y] = true;
+        ++hCapacity[_boundInfo.first->x][_boundInfo.first->y];
+    }
+    else 
+    {
+        vConnected[_boundInfo.first->x][_boundInfo.first->y] = true;
+        ++vCapacity[_boundInfo.first->x][_boundInfo.first->y];
+    }
+}
+
+void DijstraMap::incrLoad ( const Vertice* _pin1, const Vertice* _pin2 )
+{
+    // embedded  in connect
+    pair<const Vertice*, bool> _boundInfo = tile2Boundary( _pin1, _pin2 );
+    if ( _boundInfo.second == LAYER::HORI ) ++hCapacity[_boundInfo.first->x][_boundInfo.first->y];
+    else ++vCapacity[_boundInfo.first->x][_boundInfo.first->y];
+}
+
+int DijstraMap::BackTrace ( Vertice* _p, vector<string>& _output )
+{
+    bool _halfOutput;
+    short _prevDirection, _nowDirection; // 1 for horizontal, 2 for vertital
+    int _routeCount;
+    int _xCoord, _yCoord, _lowX, _lowY, _tileW, _tileH;
+    Vertice _v = Vertice( _p->x, _p->y );
+    Vertice _parent = Vertice();
+    string _tmp;
+
+    _halfOutput = false;
+    _prevDirection = 1;
+    _routeCount = 0;
+    _lowX = db.GetLowerLeftX();
+    _lowY = db.GetLowerLeftY();
+    _tileW = db.GetTileWidth();
+    _tileH = db.GetTileHeight();
+    
+
+    while ( true )
+    {
+        _xCoord = _lowX + _v.x*_tileW + _tileW/2;
+        _yCoord = _lowY + _v.y*_tileH + _tileH/2;
+        if ( distance[_v.x][_v.y] == 0 ) 
+        {
+            if ( _halfOutput )
+            {
+                _tmp = to_string(_xCoord)+","+to_string(_yCoord)+"," + to_string(_prevDirection);
+                _output.push_back( _tmp );
+                _halfOutput = false;
+                ++_routeCount;
+            }
+            if ( _prevDirection == 2 && !isViaConnected( &_v ) )
+            {
+                connectVia( &_v );
+                _tmp = to_string(_xCoord)+","+to_string(_yCoord)+"," + "1";
+                _output.push_back( _tmp );
+                _tmp = to_string(_xCoord)+","+to_string(_yCoord)+"," + "2";
+                _output.push_back( _tmp );
+                _halfOutput = false;
+                ++_routeCount;
+            }
+            break;
+        }
+        _parent.x = _v.x;
+        _parent.y = _v.y;
+        switch (parent[_v.x][_v.y])
+        {
+            case UP:
+                _parent.y--;
+                _nowDirection = 2;
+                break;
+            case DOWN:
+                _parent.y++;
+                _nowDirection = 2;
+                break;
+            case LEFT:
+                _parent.x++;
+                _nowDirection = 1;
+                break;
+            case RIGHT:
+                _parent.x--;
+                _nowDirection = 1;
+                break;
+        }
+        if ( !isConnected( &_v, &_parent ) )
+        {
+            connect(  &_v, &_parent );
+            if ( _nowDirection != _prevDirection )
+            {
+                if ( _halfOutput )
+                {
+                    _tmp = to_string(_xCoord)+","+to_string(_yCoord)+"," + to_string(_prevDirection);
+                    _output.push_back(_tmp);
+                    _halfOutput = false;
+                    ++_routeCount;
+                }
+                if ( !isViaConnected( &_v ) )
+                {
+                    connectVia( &_v );
+                    _tmp = to_string(_xCoord)+","+to_string(_yCoord)+"," + "1";
+                    _output.push_back( _tmp );
+                    _tmp = to_string(_xCoord)+","+to_string(_yCoord)+"," + "2";
+                    _output.push_back( _tmp );
+                    _halfOutput = false;
+                    ++_routeCount;
+                }
+                _tmp = to_string(_xCoord)+","+to_string(_yCoord)+"," + to_string(_nowDirection);
+                _output.push_back( _tmp );
+                _halfOutput = true;
+            }
+            if ( !_halfOutput )
+            {
+                _tmp = to_string(_xCoord)+","+to_string(_yCoord)+"," + to_string(_prevDirection);
+                _output.push_back( _tmp );
+                _halfOutput = true;
+            }
+        }
+        else
+        {
+            if ( _halfOutput )
+            {
+                _tmp = to_string(_xCoord)+","+to_string(_yCoord)+"," + to_string(_prevDirection);
+                _output.push_back( _tmp );
+                _halfOutput = false;
+                ++_routeCount;
+            }
+            if ( _nowDirection != _prevDirection )
+            {
+                if ( !isViaConnected( &_v ) )
+                {
+                    connectVia( &_v );
+                    _tmp = to_string(_xCoord)+","+to_string(_yCoord)+"," + "1";
+                    _output.push_back( _tmp );
+                    _tmp = to_string(_xCoord)+","+to_string(_yCoord)+"," + "2";
+                    _output.push_back( _tmp );
+                    _halfOutput = false;
+                    ++_routeCount;
+                }
+            }
+        }
+        _v.x = _parent.x;
+        _v.y = _parent.y;
+        _prevDirection = _nowDirection;
+    }
+    return _routeCount;
+}
+
+void DijstraMap::showInfo ()
+{
+    int vtiles = db.GetVertiGlobalTileNo();
+    int htiles = db.GetHoriGlobalTileNo();
     cout << "\nvertical capacity:";
     for (int i = vtiles-2; i >=0 ; i--)
     {
@@ -97,29 +329,7 @@ void Grid::showInfo ()
     cout << endl;
 }
 
-int Grid::getCapacity ( const Vertice* _pin1, const Vertice* _pin2 )
-{
-    pair<const Vertice*, bool> _boundInfo = tile2Boundary( _pin1, _pin2 );
-    if ( _boundInfo.second == LAYER::HORI ) return hCapacity[_boundInfo.first->x][_boundInfo.first->y];
-    else return vCapacity[_boundInfo.first->x][_boundInfo.first->y];
-}
-
-int Grid::getLoad ( const Vertice* _pin1, const Vertice* _pin2 )
-{
-    pair<const Vertice*, bool> _boundInfo = tile2Boundary( _pin1, _pin2 );
-    if ( _boundInfo.second == LAYER::HORI ) return hLoad[_boundInfo.first->x][_boundInfo.first->y];
-    else return vLoad[_boundInfo.first->x][_boundInfo.first->y];
-}
-
-void Grid::incrLoad ( const Vertice* _pin1, const Vertice* _pin2 )
-{
-    pair<const Vertice*, bool> _boundInfo = tile2Boundary( _pin1, _pin2 );
-    if ( _boundInfo.second == LAYER::HORI ) ++hCapacity[_boundInfo.first->x][_boundInfo.first->y];
-    else ++vCapacity[_boundInfo.first->x][_boundInfo.first->y];
-}
-
-
-pair<const Vertice*, bool> Grid::tile2Boundary( const Vertice* _pin1, const Vertice* _pin2 )
+pair<const Vertice*, bool> DijstraMap::tile2Boundary( const Vertice* _pin1, const Vertice* _pin2 )
 {
     bool layer;
     if ( _pin1->x == _pin2->x ) 
@@ -137,113 +347,30 @@ pair<const Vertice*, bool> Grid::tile2Boundary( const Vertice* _pin1, const Vert
 
 }
 
-//======================DijstraMap======================
-
-DijstraMap::DijstraMap ()
-{
-    int _vtiles = db.GetVertiGlobalTileNo();
-    int _htiles = db.GetHoriGlobalTileNo();
-
-    parent = new int* [_htiles];
-    connected = new bool* [_htiles];
-    distance = new double* [_htiles];
-    for (int i = 0; i < _htiles; i++)
-    {
-        parent[i] = new int [_vtiles];
-        connected[i] = new bool [_vtiles];
-        distance[i] = new double [_vtiles];
-        for (int j = 0; j < _vtiles; j++)
-        {
-            parent[i][j] = 0;
-            connected[i][j] = 0;
-            distance[i][j] = 0;
-        }
-    }
-}
-
-DijstraMap::~DijstraMap ()
-{
-    for (int i = 0; i < db.GetHoriGlobalTileNo(); i++)
-    {
-        delete [] parent[i];
-        delete [] connected[i];
-        delete [] distance[i];
-    }
-    delete [] parent;
-    delete [] connected;
-    delete [] distance;
-}
-
-void DijstraMap::BackTrace ( Vertice* _p )
-{
-    short _x = _p->x, _y = _p->y;
-    
-    while ( true )
-    {
-        connected[_x][_y] = true;
-        cout << _x << " " << _y << endl;
-        if ( distance[_x][_y] == 0 ) break;
-        switch (parent[_x][_y])
-        {
-            case UP:
-                _y--;
-                break;
-            case DOWN:
-                _y++;
-                break;
-            case LEFT:
-                _x++;
-                break;
-            case RIGHT:
-                _x--;
-                break;
-        }
-    }
-}
-
-void DijstraMap::refreshConnection ()
-{ 
-    for (int i = 0; i < db.GetHoriGlobalTileNo(); i++)
-    {
-        for (int j = 0; i < db.GetVertiGlobalTileNo(); j++)
-        {
-            connected[i][j] = false;
-        }
-    }
-}
-
-void DijstraMap::refreshDistance ()
-{
-    for (int i = 0; i < db.GetHoriGlobalTileNo(); i++)
-    {
-        for (int j = 0; i < db.GetVertiGlobalTileNo(); j++)
-        {
-            distance[i][j] = numeric_limits<double>::max();
-        }
-    }
-}
-
 //======================Router======================
 
 Router::Router ()
 {
-    grid = new Grid;
     dMap = new DijstraMap;
 }
 
 Router::~Router ()
 {
-    delete grid;
     delete dMap;
 }
 
-void Router::routeAll ()
+void Router::routeAll ( ofstream& _of )
 {
     netOrdering();
     for (map<int, Net*>::iterator it = orderedNets.begin(); it != orderedNets.end(); ++it)
     {
         map<int, SubNet*> _orderedSubnet;
         Net* _n = it->second;
+        vector<string> _output;
+        int _routeCount;
+        _output.empty();
+        _routeCount = 0;
+
         for (int i = 0; i < _n->GetSubNetNo(); i++)
         {
             SubNet& _sn = _n->GetSubNet(i);
@@ -253,10 +380,13 @@ void Router::routeAll ()
         for (map<int, SubNet*>::iterator subIt = _orderedSubnet.begin(); subIt != _orderedSubnet.end(); ++subIt)
         {
             SubNet* _sn = subIt->second;
+            Vertice _v = Vertice(  _sn->GetTargetPinGx(), _sn->GetTargetPinGy() );
+
             runDijstra( _sn );
-            dMap->BackTrace( &Vertice( _sn->GetTargetPinGx(), _sn->GetTargetPinGy() ) );
+            _routeCount += dMap->BackTrace( &_v, _output );
         }
 
+        printNet( _n, _output, _routeCount, _of );
         dMap->refreshConnection();
         _orderedSubnet.clear();
     }
@@ -289,7 +419,7 @@ void Router::runDijstra ( SubNet* _sn )
             break;
         }
         
-        if ( dMap->isMinDistance( _v ) ) { // old vertice(substitute for Decrease-Key)
+        if ( !dMap->isMinDistance( _v ) ) { // old vertice(substitute for Decrease-Key)
             continue;
         }
         
@@ -316,7 +446,6 @@ void Router::relax ( Vertice* _p, minHeap& _mheap )
 
 Vertice* Router::toVertice( Vertice* _p, int _direction )
 {
-    Vertice* _v;
     int _x, _y;
     switch (_direction)
     {
@@ -336,18 +465,22 @@ Vertice* Router::toVertice( Vertice* _p, int _direction )
         _x = _p->x + 1;
         _y = _p->y;
         break;
+    default:
+        _x = _p->x;
+        _y = _p->y;
+        assert(0);
     }
-    if ( _x >= 0 && _y >= 0 && _x < db.GetHoriGlobalTileNo() && _y < db.GetVertiGlobalTileNo() ) return new Vertice( _x, _y );
+    if ( _x >= 0 && _y >= 0 && _x < db.GetHoriGlobalTileNo() && _y < db.GetVertiGlobalTileNo() && dMap->unDiscovered( _x, _y )  ) return new Vertice( _x, _y );
     else return NULL;
 }
 
 double Router::getWeight( Vertice* _pFrom, Vertice* _pTo )
 {
     // reuse walked path
-    if ( dMap->isConnected( _pTo ) ) return 0;
+    if ( dMap->isConnected( _pFrom, _pTo ) ) return 0;
 
-    int _cap = grid->getCapacity( _pFrom, _pTo );
-    int _load = grid->getLoad( _pFrom, _pTo );
+    int _cap = dMap->getCapacity( _pFrom, _pTo );
+    int _load = dMap->getLoad( _pFrom, _pTo );
     double ratio = _load*1.0 / _cap*1.0;
     return pow( 2, ratio );
 }
@@ -370,7 +503,6 @@ void Router::netOrdering ()
 
 int Router::getNetOrder ( Net &_n )
 {
-    int _x1, _y1, _x2, _y2;
     int _sum = 0;
     for (int i = 0; i < _n.GetSubNetNo(); i++)
     {
@@ -396,4 +528,18 @@ int Router::getManhattanDist ( short _x1, short _y1, short _x2, short _y2 )
     _deltaX = ( _x1 > _x2 ) ? _x1 - _x2 : _x2 - _x1;
     _deltaY = ( _y1 > _y2 ) ? _y1 - _y2 : _y2 - _y1;
     return _deltaX + _deltaY;
+}
+
+void Router::printNet( Net* _n, vector<string>& _output, int _routeCount, ofstream& _of )
+{
+    bool _iseven = true;
+    _of << _n->GetName() << " " << _n->GetUid() << " " << _routeCount << endl;
+    for (size_t i = 0; i < _output.size(); i++)
+    {
+        _of << "(" << _output[i] << ")";
+        if ( _iseven ) _of << "-";
+        else _of << "\n";
+        _iseven = !_iseven;
+    }
+    _of << "!" << endl;   
 }

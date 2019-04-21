@@ -179,6 +179,15 @@ int main(int argc, char** argv)
     cout << endl;
     /* =================================== */
 
+    ofstream f;
+    f.open(argv[2]);
+    Router router = Router();
+    router.routeAll( f );
+    f.close();
+
+    cout << endl;
+    cout << endl;
+
 
     {
 	cout << "[Verify]" << endl;
@@ -193,8 +202,6 @@ int main(int argc, char** argv)
     cout << endl;
     cout << endl;
 
-    Router router = Router();
-    router.routeAll();
 
     return 0;
 }
