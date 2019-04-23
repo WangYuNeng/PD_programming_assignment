@@ -286,6 +286,40 @@ int DijstraMap::BackTrace ( Vertice* _p, vector<string>& _output )
     return _routeCount;
 }
 
+void DijstraMap::preRouteBackTrace ( Vertice* _p )
+{
+    Vertice _v = Vertice( _p->x, _p->y );
+    Vertice _parent = Vertice();
+
+    while ( true )
+    {
+        if ( parent[_v.x][_v.y] == NONE ) 
+        {
+            break;
+        }
+        _parent.x = _v.x;
+        _parent.y = _v.y;
+        switch (parent[_v.x][_v.y])
+        {
+            case UP:
+                _parent.y--;
+                break;
+            case DOWN:
+                _parent.y++;
+                break;
+            case LEFT:
+                _parent.x++;
+                break;
+            case RIGHT:
+                _parent.x--;
+                break;
+        }
+        incrLoad( &_v, &_parent );
+        _v.x = _parent.x;
+        _v.y = _parent.y;
+    }
+}
+
 void DijstraMap::showInfo ()
 {
     int vtiles = db.GetVertiGlobalTileNo();
@@ -398,6 +432,33 @@ void Router::routeAll ( ofstream& _of )
     
 }
 
+void Router::preRoute ()
+{
+    multimap<int, SubNet*> _orderedSubnet;
+    int _count = 0, size = 0;
+    for (int i = 0; i < db.GetNetNo(); i++)
+    {
+	    Net& _n = db.GetNetByPosition(i);
+        for (int j = 0; j < _n.GetSubNetNo(); j++)
+        {
+            SubNet& _sn = _n.GetSubNet(j);
+            _orderedSubnet.insert( make_pair( getSubnetOrder( _sn ), &_sn ) );
+            ++size;
+        }
+    }
+    
+    for (multimap<int, SubNet*>::iterator subIt = _orderedSubnet.begin(); subIt != _orderedSubnet.end(); ++subIt)
+    {
+        _count++;
+        cout << "Routing SubNet ... " << " (" << setw(8) << _count << "/" << setw(8) << size << ")" << flush;
+        SubNet* _sn = subIt->second;
+        Vertice _v = Vertice(  _sn->GetTargetPinGx(), _sn->GetTargetPinGy() );
+        runDijstra( _sn );
+        dMap->preRouteBackTrace( &_v );
+        cout << char(13) << setw(60) << ' ' << char(13);   
+    }
+}
+
 void Router::runDijstra ( SubNet* _sn )
 {
     minHeap _distanceHeap;
@@ -493,14 +554,7 @@ double Router::getWeight( Vertice* _pFrom, Vertice* _pTo )
     int _load = dMap->getLoad( _pFrom, _pTo );
     double ratio = _load*1.0 / _cap*1.0;
     
-    int _viacost = 0;
-    bool _d1, _d2;
-    if ( dMap->getParent( _pFrom ) == UP || dMap->getParent( _pFrom ) == DOWN ) _d1 = 1;
-    else _d1 = 0;
-    if ( dMap->getParent( _pTo ) == UP || dMap->getParent( _pTo ) == DOWN ) _d2 = 1;
-    else _d2 = 0;
-    _viacost = int( !(_d1 == _d2) );
-    return pow( 2, ratio ) + _viacost;
+    return pow( 2, ratio );;
 }
 
 void Router::update ( Vertice* _pFrom, Vertice* _pTo, double _newDist, minHeap& _mheap )

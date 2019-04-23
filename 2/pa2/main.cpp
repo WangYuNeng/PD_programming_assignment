@@ -4,6 +4,7 @@
 #include "router.h"
 #include <string>
 #include <cstdlib>
+#include <ctime>
 
 using namespace std;
 
@@ -56,16 +57,17 @@ void HandleArgument(const int argc, char** argv)
 
 int main(int argc, char** argv) 
 {
+    time_t startTime = time(NULL);
     HandleArgument(argc, argv); 
 
 
     {
 	/* Parser */
-	cout << "[Parser]" << endl;
+	//cout << "[Parser]" << endl;
 	Parser parser;
 	parser.ReadISPD(inputFile);
     }
-    cout << endl;
+    //cout << endl;
 
     /* =================================== */
     /* Show input information after parser */
@@ -143,13 +145,13 @@ int main(int argc, char** argv)
 
 
     {
-	cout << "[Tree Construction (Net Decomposition)]" << endl;
+	//cout << "[Tree Construction (Net Decomposition)]" << endl;
 
 	RoutingTree tree;
 	tree.MinimumSpanningTreeConstruction();
 
 	//tree.ShowInfo();
-	cout << endl;
+	//cout << endl;
     }
 	
 
@@ -182,25 +184,32 @@ int main(int argc, char** argv)
     ofstream f;
     f.open(argv[2]);
     Router router = Router();
+    cout << "preRoute ...\n";
+    router.preRoute();
+
+    time_t secondTime = time(NULL);
+    cout << "PreRoute time : " << secondTime - startTime << endl;
+    cout << "Route all ...\n";
     router.routeAll( f );
     f.close();
 
-    cout << endl;
+    cout << "Route time : " << time(NULL) - secondTime << endl;    
+    cout << "Total run time : " << time(NULL) - startTime << endl;
     cout << endl;
 
 
     {
-	cout << "[Verify]" << endl;
+	//cout << "[Verify]" << endl;
 	char cmd[100];
 
 	//sprintf(cmd, "./eval2008.pl %s %s", argv[1], argv[2]);
 	sprintf(cmd, "./eval.pl %s %s", argv[1], argv[2]);
-	cout << cmd << endl;
+	//cout << cmd << endl;
 	system(cmd);
     }
 
-    cout << endl;
-    cout << endl;
+    //cout << endl;
+    cout << "===========================================" << endl;
 
 
     return 0;

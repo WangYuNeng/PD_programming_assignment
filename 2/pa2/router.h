@@ -64,6 +64,7 @@ class DijstraMap
 
     // print function
     int BackTrace ( Vertice* _p, vector<string>& _output );
+    void preRouteBackTrace ( Vertice* _p );
     void showInfo ();
 
     private:
@@ -83,8 +84,10 @@ public:
     ~Router();
 
     void routeAll( ofstream& _of );
+    void preRoute();
 
 private:
+    bool isPreRoute;
     DijstraMap *dMap;
     multimap<int, Net*> orderedNets;
 
