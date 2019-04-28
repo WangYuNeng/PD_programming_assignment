@@ -1,0 +1,17 @@
+g++  -Wall -O2  -std=c++11    -c -o main.o main.cpp
+g++  -Wall -O2  -std=c++11    -c -o parser.o parser.cpp
+g++  -Wall -O2  -std=c++11    -c -o routingdb.o routingdb.cpp
+g++  -Wall -O2  -std=c++11    -c -o tree.o tree.cpp
+g++  -Wall -O2  -std=c++11    -c -o router.o router.cpp
+g++  -Wall -O2  -std=c++11    -c -o lib/mst.o lib/mst.cpp
+g++ -Wall -O2  -std=c++11   -o gr main.o parser.o routingdb.o tree.o router.o lib/mst.o
+
+
+./gr.exe ../input/newblue3.kraftwerk80.2d.40.50.90.gr output/n3.txt time/n3time.txt
+./gr.exe ../input/adaptec5.mfar50.2d.50.20.100.gr output/a5.txt time/a5time.txt
+./gr.exe ../input/adaptec3.dragon70.2d.30.50.90.gr output/a3.txt time/a3time.txt
+./gr.exe ../input/adaptec4.aplace60.2d.30.50.90.gr output/a4.txt time/a4time.txt
+./gr.exe ../input/newblue2.fastplace90.2d.50.20.100.gr output/n2.txt time/n2time.txt
+./gr.exe ../input/newblue1.ntup50.2d.30.50.90.gr output/n1.txt time/n1time.txt
+./gr.exe ../input/adaptec2.mpl60.2d.35.20.100.gr output/a2.txt time/a2time.txt
+./gr.exe ../input/adaptec1.capo70.2d.35.50.90.gr output/a1.txt time/a1time.txt
