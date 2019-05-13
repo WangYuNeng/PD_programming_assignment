@@ -3,7 +3,8 @@
 int main( int args, char ** argv )
 {
     Placer p;
-    p.parseBlock( argv[2] );
+    p.parseModule( argv[2] );
     p.parseNets( argv[3] );
+    p.printAll();
     return 0;
 }
