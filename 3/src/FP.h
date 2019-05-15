@@ -12,6 +12,9 @@
 #include <stack>
 #include <list>
 #include <limits>
+#include <ctime>
+#include <array>
+#include <iomanip>
 
 using namespace std;
 const short NIL = -1;
@@ -19,14 +22,13 @@ const bool LEFT = 0, RIGHT = 1;
 
 struct Module // maybe can add nets to module
 {
-    string name;
     short id, width, height;
     short parent, left, right;
-    void set ( string &_n, short _id, short _w, short _h ) { name = _n; id = _id; width = _w, height = _h; parent = NIL; left = NIL; right = NIL; }
+    void set ( short _id, short _w, short _h ) { id = _id; width = _w, height = _h; parent = NIL; left = NIL; right = NIL; }
     bool isleaf () { return left == NIL && right == NIL; }
     bool isroot () { return parent == NIL; }
     void rotate () { short tmp = width; width = height; height = tmp; }
-    void print() { cout << name << " " << width << " " << height << endl; }
+    void print() { cout << width << " " << height << endl; }
 };
 
 struct Terminal
@@ -77,6 +79,9 @@ public:
     // floorplam
     void floorplan ();
 
+    // output
+    void writeFile ( char *file );
+
     // print
     void printAll ()  {
         cout << "Modules\n";
@@ -91,9 +96,12 @@ private:
     short outlineWidth, outlineHeight;
     short numBLocks, numTerminals, numNets; 
     map<string, Module*> moduleMap;
+    vector<string> names;
     map<string, Terminal*> terminalMap;
     vector<Net*> nets;
-    list<Coordinate> contours;
+    
+    list<short> contours;
+    vector<list<short>::iterator> contourIts; 
     vector<Coordinate> coords;
     Solution bestSol;
 
@@ -109,14 +117,14 @@ private:
     void modifyWeight ();
 
     // preturb
-    void rotate ( short _id );
-    void delete_insert ( short _id1 );
-    void swap2nodes ( short _id1, short _id2 );
+    void rotate ();
+    void delete_insert ();
+    void swap2nodes ();
     
     void connect ( short _parent, short _child, bool _dir );
 
     // pack
-    short modifyContour ( short _x1, short _x2, short _h );
+    short modifyContour ( list<short>::iterator _startIt, short _id );
 
     // solution
     void keepBest ();
@@ -126,6 +134,10 @@ private:
     // terminate conition
     bool TLE ();
     bool converged ();
+
+    // debug
+    void printTree ();
+    void printPacking ();
 };
 
 bool rand_bool ();

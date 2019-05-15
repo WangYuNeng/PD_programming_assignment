@@ -3,14 +3,18 @@
 extern double alpha;
 double avgDelta;
 double P, T1, T, cool;
-double cost, preCost, bestCost, deltaCost;
-double maxOriginCost;   // for normalize
-double costRatio; // for penalty of W/H ratio
+double cost, preCost, bestCost, deltaCost, convergeCost;
+double convergedRatio;
+double OutlineRatio, OLCostWeight, AWCostWeight; // for penalty of W/H ratio
 double acceptProb;
 int c, k;
 int iterations;
 int success, failure;
-short maxX, maxY; // check feasible
+double avgAWCost, avgOLCost;   // normalize
+short maxX, maxY; // check feasible and normalize
+double Area, WireLength, OutlineCost; // normolize
+time_t timer;
+bool bestFeasible;
 Solution sol;
 
 // for restrore previous
@@ -19,44 +23,60 @@ short chagedRoot;
 
 void FP::floorplan ()
 {
+    cout << "random place\n";
+    //printTree();
     // -----------------------------init-----------------------------
-    avgDelta = randomPlace();
-    P = 0.99;
-    cool = 0.1;
-    preCost = bestCost = 2;
-    maxOriginCost = 1;
-    costRatio = 0.5;
-    c = 100;
-    k = 7;
-    iterations = numBLocks * 13;
+    P = 0.9;
+    cool = 0.000001;
+    preCost = bestCost = numeric_limits<double>::max();
+    avgAWCost = avgOLCost = 1;
+    OutlineRatio = double( outlineHeight ) / double( outlineWidth );
+    convergedRatio = 0.99;
+    OLCostWeight = 0.5;
+    AWCostWeight = 1 - OLCostWeight;
+    c = max( 100-numBLocks, 10 );
+    k = max( 2, numBLocks/11 );
+    iterations = numBLocks * 2 + 20;
     success = failure = 0;
-    T1 = avgDelta / log( P );
+    coords.resize( numBLocks, Coordinate(0, 0) );
+    contourIts.resize( numBLocks );
+    bestFeasible = false;
+    avgDelta = randomPlace();
+    T1 = abs( avgDelta / log( 1/P ) );
     // --------------------------------------------------------------
 
+    cout << "avgDelta " << avgDelta << endl;
+    cout << "avgAWCost: " << avgAWCost << " avgOLCost " << avgOLCost << endl;
+
     // first stage
+    cout << "first stage\n";
     T = T1;
     anneal( 1, 1 );
     restoreBest();
 
+    cout << "second stage\n";
     // second stage
     for (int i = 2; i <= k; i++)
     {
-        T = T1 * deltaCost / i / c;
+        T = abs( T1 * deltaCost / i / c );
         avgDelta = 0;
         anneal( i, 2 );
         restoreBest();
     }
 
+    cout << "third stage\n";
     // third stage
     for (int i = k + 1; ; i++)
     {
-        T = T1 * avgDelta / i;
+        convergeCost = bestCost;
+        //T = abs( T1 * avgDelta / i );
+        T = 0.85 * T;
+        if ( !bestFeasible ) T = abs(avgDelta / log( 1*i/P ));
         avgDelta = 0;
         anneal( i, 3 );
         restoreBest();
-        if ( T < cool || TLE() || converged() ) return;
+        if ( bestFeasible && ( T < cool || TLE() || converged()) ) return;
     }
-    
     
 }
 
@@ -71,41 +91,64 @@ void FP::anneal ( int r, short stage )
         avgDelta = ( avgDelta * i + deltaCost ) / ( i + 1 );
         acceptProb = 1 / ( exp( deltaCost / T ) );
         acceptProb = acceptProb > 1 ? 1 : acceptProb;
-        if ( deltaCost < 0 || rand_01() < acceptProb ) preCost = cost;
-        else restorePrev();
+        if ( cost < bestCost && bestFeasible != 1 ) keepBest();
         if ( isFeasible() )
         {
             success ++;
-            if ( cost < bestCost ) keepBest();            
+            if ( cost < bestCost ) keepBest();
+            if ( !bestFeasible ) cout << "FEASIBLE!!!\n";
+            bestFeasible = true;            
         } else failure++;
+        if ( deltaCost < 0 || rand_01() < acceptProb ) preCost = cost;
+        else restorePrev();
         modifyWeight();
-        if ( stage == 2 ) T = T1 * avgDelta / r / c;
-        else if ( stage == 3 ) T = T1 * avgDelta / r;
+        if ( stage == 2 ) T = abs( T * 0.9 );
+        else if ( stage == 3 ) {
+            //T = abs( T * 0.9 );
+            if ( !bestFeasible ) T = abs(avgDelta / log( 1*r/P ));
+        }
     }
+    //cout << "avgDelta: " << avgDelta << " Temparature: " << setprecision(5) << fixed << T << endl;
 }
 
 double FP::randomPlace ()
 {
-    double _max = 0;
     double _sumDelta = 0;
     pack();
-    _max = cost = getCost();
+    preCost = getCost();
     keepBest();
 
-    for (int i = 0; i < iterations; i++)
+    // for normalize
+    double _sumArea = 0, _sumWirelength = 0;
+    double _sumRatio = 0;
+    for (int i = 0; i < iterations / 2; i++)
+    {
+        perturb();
+        //printTree();
+        pack();
+        cost = getCost();
+        _sumArea += Area;
+        _sumWirelength += WireLength;
+        _sumRatio += OutlineCost;
+        if ( cost < bestCost ) keepBest();
+    }
+    avgAWCost = ( alpha * _sumArea + (1 - alpha) * _sumWirelength ) / ( iterations / 2 );
+    avgOLCost = _sumRatio / ( iterations / 2 );
+    if ( bestFeasible ) restoreBest();
+
+    // for avgdelta
+    bestCost = 0;
+    for (int i = 0; i < iterations / 2; i++)
     {
         perturb();
         pack();
         cost = getCost();
         deltaCost = cost - preCost;
         _sumDelta += deltaCost;
-        if ( cost > _max ) _max = cost;
         if ( cost < bestCost ) keepBest();
     }
-    restoreBest();
-    _sumDelta /= _max;
-    maxOriginCost = _max;
-    return _sumDelta / iterations;
+    if ( bestFeasible ) restoreBest();
+    return _sumDelta / ( iterations / 2 );
 }
 
 void FP::perturb ()
@@ -114,13 +157,13 @@ void FP::perturb ()
     switch ( _choice )
     {
         case 0:
-            rotate( rand() % numBLocks );
+            rotate();
             break;
         case 1:
-            delete_insert( rand() % numBLocks );
+            delete_insert();
             break;
         case 2:
-            swap2nodes( rand() % numBLocks, rand() % numBLocks );
+            swap2nodes();
             break;
         default:
             break;
@@ -139,31 +182,28 @@ void FP::pack ()
         nodeStack.pop();
 
         short _x, _y, _parentID;
+        list<short>::iterator _it;
         if ( m.parent != NIL )
         {
-            if ( sol.Btree[ m.parent ].left = m.id )
+            _it = contourIts[m.parent];
+            if ( sol.Btree[ m.parent ].left == m.id )
             {
-                _x = coords[ m.parent ].x + sol.Btree[ m.parent ].width;
-                _y = modifyContour( _x, _x+m.width, m.height );     
+                coords[ m.id ].x = coords[ m.parent ].x + sol.Btree[ m.parent ].width;
+                coords[ m.id ].y = modifyContour( ++_it, m.id );     
             } else
             {
-                _x = coords[ m.parent ].x;
-                _y = modifyContour( _x, _x+m.width, m.height );     
+                coords[ m.id ].x = coords[ m.parent ].x;
+                coords[ m.id ].y = modifyContour( _it, m.id );     
             }
-            coords[ m.id ].x = _x;
-            coords[ m.id ].y = _y;
         } else
         {
             coords[ m.id ].x = 0;
             coords[ m.id ].y = 0;
             contours.clear();
-            contours.push_back( Coordinate( 0, 0 ) );
-            contours.push_back( Coordinate( 0, m.height ) );
-            contours.push_back( Coordinate( m.width, m.height ) );
-            contours.push_back( Coordinate( m.width, 0 ) );
-            contours.push_back( Coordinate( numeric_limits<short>::max(), 0 ) );
+            contours.push_back( m.id );
+            contourIts[m.id] = contours.begin();
         }
-        
+        //cout << m.id << " " << coords[m.id].x << " " << coords[m.id].y << " " << coords[m.id].x + sol.Btree[m.id].width << " " << coords[m.id].y + sol.Btree[m.id].height << endl;
         if ( m.right != NIL ) nodeStack.push( m.right );
         if ( m.left != NIL ) nodeStack.push( m.left );  
     }
@@ -173,23 +213,26 @@ void FP::pack ()
 double FP::getCost ()
 {
     maxX = maxY = 0;
-    for ( auto it = contours.begin(); it != contours.end(); it++ )
+    for ( short _id = 0; _id < numBLocks; _id++ )
     {
-        if ( it->x > maxX && it->x != numeric_limits<short>::max() ) maxX = it->x;
-        if ( it->y > maxY ) maxY = it->y;
+        short _contourX, _contourY;
+        _contourX = coords[_id].x + sol.Btree[_id].width;
+        _contourY = coords[_id].y + sol.Btree[_id].height;
+        if ( _contourX > maxX ) maxX = _contourX;
+        if ( _contourY > maxY ) maxY = _contourY;
     }
-    int _area = maxX * maxY;
+    Area = maxX * maxY;
     
-    short _left, _right, _bottom, _top, _x, _y;
-    int _wireLength = 0;
+    double _left, _right, _bottom, _top, _x, _y;
+    WireLength = 0;
     for ( auto _n = nets.begin(); _n != nets.end(); _n++ )
     {
-        _left = _bottom = numeric_limits<short>::max();
-        _right = _bottom = 0;
+        _left = _bottom = numeric_limits<double>::max();
+        _right = _top = 0;
         for (auto _m = (*_n)->moduleIDs.begin(); _m != (*_n)->moduleIDs.end(); _m++)
         {
-            _x = coords[*_m].x;
-            _y = coords[*_m].y;
+            _x = coords[*_m].x + double( sol.Btree[*_m].width ) / 2;
+            _y = coords[*_m].y + double( sol.Btree[*_m].height ) / 2;
             if ( _x > _right ) _right = _x;
             if ( _x < _left ) _left = _x;
             if ( _y > _top ) _top = _y;
@@ -204,11 +247,14 @@ double FP::getCost ()
             if ( _y > _top ) _top = _y;
             if ( _y < _bottom ) _bottom = _y;
         }
-        _wireLength += ( _right - _left ) + ( _top - _bottom );
+        WireLength += ( _right - _left ) + ( _top - _bottom );
     }
 
-    double _cost = alpha * _area + ( 1 - alpha )*_wireLength; // how to normalize???
-
+    OutlineCost = double( maxY ) / double(  maxX ) - OutlineRatio;
+    OutlineCost *= OutlineCost;
+    OutlineCost /= avgOLCost;
+    double _awcost = ( alpha * Area + ( 1 - alpha ) * WireLength ) / avgAWCost; 
+    return AWCostWeight * _awcost + OLCostWeight * OutlineCost;
 }
 
 bool FP::isFeasible ()
@@ -219,19 +265,28 @@ bool FP::isFeasible ()
 void FP::modifyWeight ()
 {
     // need further tuned
-    costRatio *= failure*1.0 / ( failure+success ) * 1.0;
+    if ( failure == 0 ) OLCostWeight *= 0.99;
+    else OLCostWeight *= double(failure) / double( failure+success );
 }
 
-void FP::rotate ( short _id )
+void FP::rotate ()
 {
+    short _id;
     changedModules.clear();
     chagedRoot = NIL; 
-    changedModules.push_back( sol.Btree[_id] );
+    do
+    {
+        _id = rand() % numBLocks;
+    } while ( sol.Btree[_id].width > outlineHeight || sol.Btree[_id].height > outlineWidth );
     sol.Btree[_id].rotate();
+    //cout << "rotate module " << _id << endl;
+    changedModules.push_back( sol.Btree[_id] );
+
 }
 
-void FP::delete_insert ( short _id1 )
+void FP::delete_insert ()
 {
+    short _id1 = rand() % numBLocks; 
     changedModules.clear();
     chagedRoot = sol.root;
     for (auto i = 0; i < sol.Btree.size(); i++)
@@ -262,6 +317,7 @@ void FP::delete_insert ( short _id1 )
                 else _child = _rchild;
                 connect( _parent, _child, _from );
             }
+            if ( _parent == NIL ) sol.root = _child;
             break;
         }
 
@@ -269,6 +325,7 @@ void FP::delete_insert ( short _id1 )
         if ( _dir == LEFT ) _child = _lchild;
         else _child = _rchild;
         connect( _parent, _child, _from );
+        if ( _parent == NIL ) sol.root = _child;
 
         _newlchild = sol.Btree[_child].left;
         _newrchild = sol.Btree[_child].right;
@@ -285,12 +342,14 @@ void FP::delete_insert ( short _id1 )
     // insert
     sol.Btree[_id1].left = NIL;
     sol.Btree[_id1].right = NIL;
-    short _id2 = rand() % numBLocks;
+    short _id2;
     _dir = rand_bool();
-    while( _id2 == _id1 )
+    do
     {
         _id2 = rand() % numBLocks;
-    }
+    } while ( _id2 == _id1 );
+
+    //cout << "delete module " << _id1 << " ,insert at " << _id2 << endl;
 
     if ( _dir == LEFT ) _child = sol.Btree[_id2].left;
     else _child = sol.Btree[_id2].right;
@@ -298,8 +357,17 @@ void FP::delete_insert ( short _id1 )
     connect( _id1, _child, _dir );
 }
 
-void FP::swap2nodes ( short _id1, short _id2 )
+void FP::swap2nodes ()
 {
+    short _id1, _id2;
+    do
+    {
+        _id1 = rand() % numBLocks;
+        _id2 = rand() % numBLocks;
+    } while ( _id1 == _id2 );
+    
+    //cout << "swap " << _id1 << " and " << _id2 << endl;
+
     changedModules.clear();
     if ( sol.root == _id1 ) {
         chagedRoot = sol.root;
@@ -325,6 +393,19 @@ void FP::swap2nodes ( short _id1, short _id2 )
     _r1 = changedModules[0].right;
     _p1 = changedModules[0].parent;
     _dir1 = ( sol.Btree[sol.Btree[_id1].parent].right == _id1 );
+    
+    // 2 connected nodes
+    if ( _p1 == _id2 )
+    {
+        _p1 = _id1;
+        if ( _dir1 == LEFT ) _l2 = _id2;
+        else _r2 = _id2;
+    } else if ( _p2 == _id1 )
+    {
+        _p2 = _id2;
+        if ( _dir2 == LEFT ) _l1 = _id1;
+        else _r1 = _id1;
+    } 
 
     if ( _l2 != NIL ) changedModules.push_back( sol.Btree[_l2] );
     if ( _r2 != NIL ) changedModules.push_back( sol.Btree[_r2] );
@@ -332,6 +413,7 @@ void FP::swap2nodes ( short _id1, short _id2 )
     if ( _l1 != NIL ) changedModules.push_back( sol.Btree[_l1] );
     if ( _r1 != NIL ) changedModules.push_back( sol.Btree[_r1] );
     if ( _p1 != NIL ) changedModules.push_back( sol.Btree[_p1] );
+
 
     connect( _id1, _l2, LEFT );
     connect( _id1, _r2, RIGHT );
@@ -352,39 +434,25 @@ void FP::connect ( short _parent, short _child, bool _dir )
     if ( _child != NIL ) sol.Btree[_child].parent = _parent;
 }
 
-short FP::modifyContour ( short _x1, short _x2, short _h )
+short FP::modifyContour ( list<short>::iterator _startIt, short _id )
 {
-    auto _left = contours.begin(), _right = contours.end();
-    short _maxHeight = 0;
+    auto _left = _startIt, _right = _startIt;
+    short _maxHeight = 0, _x1 = coords[_id].x, _x2 = coords[_id].x+sol.Btree[_id].width;
 
     // find range
-    for ( auto it = contours.begin(); it != contours.end(); it++ )
+    for ( auto it = _startIt; it != contours.end(); it++ )
     {
-        if ( it->x <= _x1 ) _left = it;
-        else if ( it->x > _x1 && it->x < _x2 )
-        {
-            if ( it->y > _maxHeight ) _maxHeight = it->y;
-        }
-        else if ( it->x == _x2 )
-        {
-            _right = ++it;
-            break;
-        }
-        else
+        short _contourId = *it;
+        if ( coords[_contourId].y + sol.Btree[_contourId].height > _maxHeight ) _maxHeight = coords[_contourId].y + sol.Btree[_contourId].height;
+        if ( !( coords[_contourId].x + sol.Btree[_contourId].width <= _x2 ) ) 
         {
             _right = it;
             break;
-        }        
+        }       
     }
-    
     // update
-    short _newHeight = _maxHeight + _h;
     contours.erase( _left, _right );
-    _left = --_right;
-    ++_right;
-    if ( _left->x != _x1 || _left->y != _newHeight ) contours.insert( _right, Coordinate( _x1, _newHeight ) );
-    if ( _right->x != _x2 || _right->y != _newHeight )contours.insert( _right, Coordinate( _x2, _newHeight ) );
-    if ( _right->x != _x2 || _right->y < _maxHeight ) contours.insert( _right, Coordinate( _x2, _maxHeight ) );
+    contourIts[_id] = contours.insert(_right, _id);
     return _maxHeight;
 }
 
@@ -413,12 +481,12 @@ void FP::restoreBest ()
 
 bool FP::TLE ()
 {
-
+    return time(NULL) - timer > 3300;
 }
 
 bool FP::converged ()
 {
-
+    return bestCost / convergeCost < convergedRatio;
 }
 
 FP::~FP ()
@@ -430,6 +498,8 @@ FP::~FP ()
 
 void FP::parseModule ( char *_filename )
 {
+    timer = time(NULL);
+    
     ifstream _f;
     string _s, _s2;
     short _num1, _num2, _current_node = 0;
@@ -447,7 +517,7 @@ void FP::parseModule ( char *_filename )
     {
         _f >> _s >> _num1 >> _num2;
         _b = new Module;
-        _b->set( _s, i, _num1, _num2 );
+        _b->set( i, _num1, _num2 );
         moduleMap.insert( make_pair( _s, _b ) );
         if ( i != 0 ) 
         {
@@ -459,6 +529,7 @@ void FP::parseModule ( char *_filename )
                 _current_node++;
             }
         } else _b->parent = NIL;
+        names.push_back(_s);
         sol.Btree.push_back( *_b );
     }
     
@@ -505,12 +576,61 @@ void FP::parseNets ( char *_filename )
     _f.close();
 }
 
-bool rand_bool()
+void FP::writeFile ( char *_filename )
+{
+    ofstream _of;
+    restoreBest();
+    pack();
+    cost = getCost();
+
+    _of.open( _filename );
+
+    _of << setprecision(5) << fixed << alpha * Area + ( 1 - alpha ) * WireLength << endl;
+    _of << setprecision(5) << fixed << WireLength << endl;
+    _of << setprecision(5) << fixed << Area << endl;
+    _of << maxX << " " << maxY << endl;
+    _of << time(NULL) - timer << endl;
+    for ( short i = 0; i < numBLocks; ++i )
+    {
+        _of << names[i] << " " << coords[i].x << " " << coords[i].y << " " << coords[i].x + sol.Btree[i].width << " " << coords[i].y + sol.Btree[i].height << endl;
+    }
+} 
+
+bool rand_bool ()
 {
 	return bool( rand()%2 == 0 );
 }
 
-double rand_01()
+double rand_01 ()
 {
   return double( rand()%10000 ) / 10000;
+}
+
+void FP::printTree ()
+{
+    stack<short> nodeStack;
+
+    nodeStack.push( sol.root );
+
+    while ( !nodeStack.empty() )
+    {
+        Module &m = sol.Btree[ nodeStack.top() ];
+        nodeStack.pop();
+
+        cout << " Node: " << m.id;        
+        cout << " parent: " << m.parent;        
+        cout << " left: " << m.left;        
+        cout << " right: " << m.right;
+        cout << endl;        
+        if ( m.right != NIL ) nodeStack.push( m.right );
+        if ( m.left != NIL ) nodeStack.push( m.left );  
+    }
+}
+
+void FP::printPacking ()
+{
+    for ( short i = 0; i < numBLocks; ++i )
+    {
+        cout << names[i] << " " << coords[i].x << " " << coords[i].y << " " << coords[i].x + sol.Btree[i].width << " " << coords[i].y + sol.Btree[i].height << endl;
+    }
 }
