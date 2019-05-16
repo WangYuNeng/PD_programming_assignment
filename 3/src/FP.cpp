@@ -8,10 +8,11 @@ double convergedRatio;
 double OutlineRatio, OLCostWeight, AWCostWeight; // for penalty of W/H ratio
 double acceptProb;
 int c, k;
-int iterations;
-int success, failure;
+int rounds;
+int success, failure, accept, reject;
+int resetIterations;
 double avgAWCost, avgOLCost;   // normalize
-short maxX, maxY; // check feasible and normalize
+short maxX, maxY, bestX, bestY; // check feasible and normalize
 double Area, WireLength, OutlineCost; // normolize
 time_t timer;
 bool bestFeasible;
@@ -23,11 +24,10 @@ short chagedRoot;
 
 void FP::floorplan ()
 {
-    cout << "random place\n";
     //printTree();
     // -----------------------------init-----------------------------
-    P = 0.8;
-    cool = 0.000001;
+    P = 0.9;
+    cool = 0.001;
     sol.cost = preCost = bestCost = numeric_limits<double>::max();
     avgAWCost = avgOLCost = 1;
     OutlineRatio = double( outlineHeight ) / double( outlineWidth );
@@ -36,7 +36,8 @@ void FP::floorplan ()
     AWCostWeight = 1 - OLCostWeight;
     c = max( 100-numBLocks, 10 );
     k = max( 2, numBLocks/11 );
-    iterations = numBLocks * 2 + 20;
+    rounds = numBLocks * 2 + 20;
+    resetIterations = numBLocks * 2;
     success = failure = 0;
     coords.resize( numBLocks, Coordinate(0, 0) );
     contourIts.resize( numBLocks );
@@ -49,74 +50,90 @@ void FP::floorplan ()
     cout << "avgAWCost: " << avgAWCost << " avgOLCost " << avgOLCost << endl;
 
     // first stageF
-    cout << "first stage\n";
-    T = T1;
-    anneal( 1, 1 );
-
-    cout << "second stage\n";
-    // second stage
-    for (int i = 2; i <= k; i++)
+    for ( int i = 1; ; i++) 
     {
-        //T = abs( T1 * deltaCost / i / c );
-        T = abs( avgDelta / log( 1/0.3 ) );
-        avgDelta = 0;
-        anneal( i, 2 );
-    }
+        if ( i == 1) T = T1;
+        else if ( i >= 2 && i <=k ) T = abs( T1 * avgDelta / i / c );
+        else if ( i > k ) T = abs( T1 * avgDelta / i );
 
-    cout << "third stage\n";
-    // third stage
-    for (int i = k + 1; ; i++)
-    {
-        convergeCost = bestCost;
-        //T = abs( T1 * avgDelta / i );
-        T = 0.85 * T;
-        if ( !bestFeasible ) T = abs(avgDelta / log( 1*i/P ));
-        avgDelta = 0;
-        anneal( i, 3 );
-        if ( bestFeasible && ( T < cool || TLE() || converged()) ) return;
+        if ( !bestFeasible && i == resetIterations )
+        {
+            i = 1;
+            resetIterations += 1;
+            if ( int(maxX) * int(maxY) < int(outlineWidth) * int(outlineHeight) && OLCostWeight < 0.75 ) 
+            {
+                OLCostWeight += 0.1;
+                AWCostWeight -= 0.1;
+            }
+            else if ( int(maxX) * int(maxY) > int(outlineWidth) * int(outlineHeight) && OLCostWeight > 0.25 )
+            {
+                OLCostWeight -= 0.1;
+                AWCostWeight += 0.1;
+            }
+            avgAWCost = avgOLCost = 1;
+            double _sumArea = 0, _sumWirelength = 0;
+            double _sumRatio = 0;
+            for (int i = 0; i < rounds * 2; i++)
+            {
+                perturb();
+                pack();
+                sol.cost = getCost();
+                _sumArea += Area;
+                _sumWirelength += WireLength;
+                _sumRatio += OutlineCost;
+            }
+            avgAWCost = ( alpha * _sumArea + (1 - alpha) * _sumWirelength ) / ( rounds * 2 );
+            avgOLCost = _sumRatio / ( rounds * 2 );
+            restoreBest();
+            pack();
+            cout << maxX << " " << maxY << " " << outlineWidth << " " << outlineHeight << endl;
+            cout << OLCostWeight << " " << AWCostWeight << endl;
+            bestSol.cost = preCost = bestCost = sol.cost = getCost();      
+        }
+
+        anneal( i, -1 );
+        if ( bestFeasible || TLE() ) break;
     }
-    
 }
 
 void FP::anneal ( int r, short stage )
 {
-    for (int i = 0; i < iterations; i++)
+    for (int i = 0; i < rounds; i++)
     {
         perturb();
         pack();
         sol.cost = getCost();
         deltaCost = sol.cost - preCost;
-        avgDelta = ( avgDelta * i + deltaCost ) / ( i + 1 );
+        avgDelta = ( avgDelta * i + abs(deltaCost) ) / ( i + 1 );
         acceptProb = 1 / ( exp( deltaCost / T ) );
         acceptProb = acceptProb > 1 ? 1 : acceptProb;
         if ( sol.cost < bestCost && bestFeasible != 1 ) keepBest();
         if ( isFeasible() )
         {
             success ++;
-            if ( sol.cost < bestCost ) keepBest();
-            if ( !bestFeasible ) cout << "FEASIBLE!!!\n";
+            if ( sol.cost < bestCost || !bestFeasible ) keepBest();
             bestFeasible = true;            
         } else failure++;
         if ( deltaCost < 0 || rand_01() < acceptProb ) 
         {
             preCost = sol.cost;
-            cout << "Take acceptProb = " << acceptProb << " cost = " << sol.cost << endl;
+            accept++;
+            //cout << "Take acceptProb    = " << setprecision(4) << acceptProb << " cost = " << sol.cost << " Outline = (" << maxX << ", " << maxY << ")\n";
         }
         else 
         {
+            //cout << "Discard acceptProb = " << setprecision(4)  << acceptProb << " cost = " << sol.cost << " Outline = (" << maxX << ", " << maxY << ")\n";
+            reject++;
             restorePrev();
-            cout << "Discard acceptProb = " << acceptProb << " cost = " << sol.cost << endl;
         }
         modifyWeight();
-        //if ( stage == 2 ) T = abs( T * 0.9 );
-        //else if ( stage == 3 ) {
-        //    //T = abs( T * 0.9 );
-        //    if ( !bestFeasible ) T = abs(avgDelta / log( 1*r/P ));
-        //}
+        //if ( stage == 2 ) T = abs( T1 * avgDelta / r / c );
+        //else if ( stage == 3 ) T = abs( T1 * avgDelta / r );
     }
     restoreBest();
+    
     pack();
-    cout << "Restore best, cost = " << sol.cost << " Outline = (" << maxX << ", " << maxY << ")\n";
+    //cout << "Restore best, cost = " << sol.cost << " Outline = (" << maxX << ", " << maxY << ")\n";
     //cout << "avgDelta: " << avgDelta << " Temparature: " << setprecision(5) << fixed << T << endl;
 }
 
@@ -130,7 +147,7 @@ double FP::randomPlace ()
     // for normalize
     double _sumArea = 0, _sumWirelength = 0;
     double _sumRatio = 0;
-    for (int i = 0; i < iterations * 2; i++)
+    for (int i = 0; i < rounds * 2; i++)
     {
         perturb();
         //printTree();
@@ -139,26 +156,28 @@ double FP::randomPlace ()
         _sumArea += Area;
         _sumWirelength += WireLength;
         _sumRatio += OutlineCost;
-        if ( sol.cost < bestCost ) keepBest();
+        //if ( sol.cost < bestCost ) keepBest();
+        keepBest();
     }
-    avgAWCost = ( alpha * _sumArea + (1 - alpha) * _sumWirelength ) / ( iterations * 2 );
-    avgOLCost = _sumRatio / ( iterations * 2 );
+    avgAWCost = ( alpha * _sumArea + (1 - alpha) * _sumWirelength ) / ( rounds * 2 );
+    avgOLCost = _sumRatio / ( rounds * 2 );
     //restoreBest();
 
     // for avgdelta
     preCost = 1;
-    for (int i = 0; i < iterations; i++)
+    for (int i = 0; i < rounds; i++)
     {
         perturb();
         pack();
         sol.cost = getCost();
         deltaCost = sol.cost - preCost;
         preCost = sol.cost;
-        _sumDelta += deltaCost;
+        _sumDelta += abs(deltaCost);
+        //_sumDelta += deltaCost;
         if ( sol.cost < bestCost ) keepBest();
     }
     restoreBest();
-    return _sumDelta / ( iterations );
+    return _sumDelta / ( rounds );
 }
 
 void FP::perturb ()
@@ -265,7 +284,7 @@ double FP::getCost ()
     OutlineCost *= OutlineCost;
     OutlineCost /= avgOLCost;
     double _awcost = ( alpha * Area + ( 1 - alpha ) * WireLength ) / avgAWCost; 
-    cout << double( maxY ) / double(  maxX ) << " " << OutlineRatio << endl;
+    //cout << double( maxY ) / double(  maxX ) << " " << OutlineRatio << endl;
     //cout << _awcost << " " << OutlineCost << endl;
     return AWCostWeight * _awcost + OLCostWeight * OutlineCost;
 }
@@ -471,9 +490,13 @@ short FP::modifyContour ( list<short>::iterator _startIt, short _id )
 
 void FP::keepBest ()
 {
+    //cout << "Prev best, cost = " << bestSol.cost << " Outline = (" << bestX << ", " << bestY << ")\n";
+    //cout << "Current best, cost = " << sol.cost << " Outline = (" << maxX << ", " << maxY << ")\n";
     bestSol.Btree = sol.Btree;
     bestSol.cost = preCost = bestCost = sol.cost;
     bestSol.root = sol.root;
+    bestX = maxX;
+    bestY = maxY;
 }
 
 void FP::restorePrev ()
@@ -483,6 +506,7 @@ void FP::restorePrev ()
     {
         sol.Btree[changedModules[i].id] = changedModules[i];
     }
+    sol.cost = preCost;
 }
 
 void FP::restoreBest ()
@@ -490,6 +514,8 @@ void FP::restoreBest ()
     sol.Btree = bestSol.Btree;
     sol.cost = preCost = bestCost = bestSol.cost;
     sol.root = bestSol.root;
+    maxX = bestX;
+    maxY = bestY;
 }
 
 bool FP::TLE ()
@@ -499,7 +525,8 @@ bool FP::TLE ()
 
 bool FP::converged ()
 {
-    return bestCost / convergeCost < convergedRatio;
+    return double(reject) / double(accept+reject) > convergedRatio;
+    //return bestCost / convergeCost > convergedRatio;
 }
 
 FP::~FP ()
@@ -512,6 +539,7 @@ FP::~FP ()
 void FP::parseModule ( char *_filename )
 {
     timer = time(NULL);
+    //srand(time(NULL));
     
     ifstream _f;
     string _s, _s2;
